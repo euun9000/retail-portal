@@ -39,24 +39,28 @@ function attachDialogHandler(p) {
   });
 }
 
-async function ensurePage() {
-  if (!browser) {
-    browser = await chromium.launch({
-      headless: HEADLESS,
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    });
-    context = await browser.newContext({
-      acceptDownloads: true,
-      ignoreHTTPSErrors: true,
-      userAgent:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-    });
-    context.on('page', (newPage) => {
-      attachDialogHandler(newPage);
-    });
-    page = await context.newPage();
-    attachDialogHandler(page);
+async function resetSessionPage() {
+  if (browser) {
+    await browser.close().catch(() => {});
+    browser = null;
+    context = null;
+    page = null;
   }
+  browser = await chromium.launch({
+    headless: HEADLESS,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+  });
+  context = await browser.newContext({
+    acceptDownloads: true,
+    ignoreHTTPSErrors: true,
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  });
+  context.on('page', (newPage) => {
+    attachDialogHandler(newPage);
+  });
+  page = await context.newPage();
+  attachDialogHandler(page);
   return page;
 }
 
@@ -79,7 +83,11 @@ async function fillFirstVisible(p, selectorList, value) {
   for (const target of targets) {
     for (const sel of selectorList.split(',').map((s) => s.trim()).filter(Boolean)) {
       const loc = target.locator(sel).first();
-      if ((await loc.count().catch(() => 0)) > 0 && (await loc.isVisible().catch(() => false))) {
+      if (
+        (await loc.count().catch(() => 0)) > 0 &&
+        (await loc.isVisible().catch(() => false)) &&
+        (await loc.isEditable().catch(() => false))
+      ) {
         await loc.fill(value);
         return loc;
       }
@@ -96,7 +104,7 @@ async function inspectScreen(p) {
   for (const target of targets) {
     try {
       const info = await target.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], img[onclick], span[onclick]'))
+        const btns = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], input[type="image"], img[onclick], span[onclick]'))
           .filter((el) => el.offsetParent !== null)
           .map((el) => (el.innerText || el.value || el.alt || el.getAttribute('aria-label') || el.getAttribute('onclick') || '').trim())
           .filter(Boolean);
@@ -106,6 +114,7 @@ async function inspectScreen(p) {
             type: el.type,
             name: el.name,
             id: el.id,
+            readonly: el.readOnly,
             placeholder: el.placeholder,
           }));
         const txt = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400);
@@ -134,11 +143,12 @@ app.post('/auth/request-sms', async (req, res) => {
     }
 
     lastDialogMessage = '';
-    const p = await ensurePage();
-    await p.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    await p.waitForSelector("input[type='password']", { timeout: 5000 }).catch(() => {});
+    sessionConnected = false;
+    const p = await resetSessionPage();
+    await p.goto(config.loginUrl, { waitUntil: 'load', timeout: 20000 });
+    await p.waitForSelector("input[type='password']", { timeout: 6000 }).catch(() => {});
 
-    const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input:not([type='hidden']):not([type='password']):not([type='submit']):not([type='button'])`;
+    const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input[type='text']:not([readonly])`;
     const pwSelector = `${config.selectors.passwordInput}, input[type='password']`;
     const loginBtnSelector = `${config.selectors.loginButton}, button:has-text('Log in'), input[value*='Log' i], a:has-text('Log in'), button:has-text('로그인'), a:has-text('로그인'), [onclick*='login' i], [onclick*='Login' i]`;
     const smsBtnSelector = `${config.selectors.smsSendButton}, button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS']`;
@@ -157,8 +167,8 @@ app.post('/auth/request-sms', async (req, res) => {
     if (!clickedLogin) {
       await pwLoc.press('Enter').catch(() => {});
     }
-    await p.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {});
-    await p.waitForTimeout(1000);
+    await p.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(1200);
 
     const pages = context.pages();
     if (pages.length > 1) {
@@ -206,7 +216,7 @@ app.post('/auth/verify-sms', async (req, res) => {
     }
 
     lastDialogMessage = '';
-    const smsInputSelector = `${config.selectors.smsCodeInput}, input[type='text'], input[type='number'], input[type='tel']`;
+    const smsInputSelector = `#otpNo, input[name='otpNo'], ${config.selectors.smsCodeInput}, input[type='text'], input[type='number'], input[type='tel']`;
     const filled = await fillFirstVisible(page, smsInputSelector, String(smsCode).trim());
     if (!filled) {
       const screen = await inspectScreen(page);
@@ -401,12 +411,12 @@ setInterval(async () => {
   const kstHour = new Date(Date.now() + 9 * 3600 * 1000).getUTCHours();
   if (kstHour < 9 || kstHour > 21) return;
   try {
-    const res = await collectLatestData();
+    const result = await collectLatestData();
     const logs = [
-      { id: `log-${Date.now()}`, timestamp: new Date().toLocaleTimeString('ko-KR'), type: 'auto', status: 'success', message: res.message },
+      { id: `log-${Date.now()}`, timestamp: new Date().toLocaleTimeString('ko-KR'), type: 'auto', status: 'success', message: result.message },
       ...(latestCache.syncLogs || []),
     ].slice(0, 30);
-    saveLatestCache({ syncedAt: res.syncedAt, wirelessRaw: result.wirelessRaw || [], wiredRaw: result.wiredRaw || [], syncLogs: logs });
+    saveLatestCache({ syncedAt: result.syncedAt, wirelessRaw: result.wirelessRaw || [], wiredRaw: result.wiredRaw || [], syncLogs: logs });
   } catch (err) {
     console.warn('[tkey-worker] 백그라운드 수집 실패:', err.message);
   }
