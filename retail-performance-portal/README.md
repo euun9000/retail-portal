@@ -35,3 +35,4 @@
 2. **SQL Editor**에서 이 프로젝트의 `supabase/schema.sql` 내용을 붙여넣고 실행합니다.
 3. **Project Settings > API**에서 `Project URL`과 `service_role` 키를 복사해 Vercel 환경변수(`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)에 등록합니다.
 4. 이제 대표 1명이 한 번만 SMS 인증을 완료해 두면, 이후 어떤 PC/모바일에서 접속해도 `연동됨` 상태와 최신 실적이 자동으로 불러와집니다.
+5. 
