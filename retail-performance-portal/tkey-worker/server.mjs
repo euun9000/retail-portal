@@ -22,6 +22,7 @@ let page = null;
 let sessionConnected = false;
 let lastKeepAliveAt = null;
 let lastDialogMessage = '';
+let isAuthBusy = false;
 const KEEP_ALIVE_MS = Number(process.env.KEEP_ALIVE_MS || 5 * 60 * 1000);
 
 process.on('uncaughtException', (err) => {
@@ -48,7 +49,13 @@ async function resetSessionPage() {
   }
   browser = await chromium.launch({
     headless: HEADLESS,
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-zygote',
+    ],
   });
   context = await browser.newContext({
     acceptDownloads: true,
@@ -104,9 +111,24 @@ async function inspectScreen(p) {
   for (const target of targets) {
     try {
       const info = await target.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], input[type="image"], img[onclick], span[onclick]'))
+        const btns = Array.from(
+          document.querySelectorAll('button, a, input[type="button"], input[type="submit"], input[type="image"], img[onclick], span[onclick], div[onclick], td[onclick]')
+        )
           .filter((el) => el.offsetParent !== null)
-          .map((el) => (el.innerText || el.value || el.alt || el.getAttribute('aria-label') || el.getAttribute('onclick') || '').trim())
+          .map((el) => {
+            const label = (
+              el.innerText ||
+              el.value ||
+              el.alt ||
+              el.title ||
+              el.getAttribute('aria-label') ||
+              el.getAttribute('onclick') ||
+              el.getAttribute('href') ||
+              el.getAttribute('src') ||
+              ''
+            ).trim();
+            return label;
+          })
           .filter(Boolean);
         const ins = Array.from(document.querySelectorAll('input'))
           .filter((el) => el.offsetParent !== null)
@@ -136,6 +158,10 @@ async function inspectScreen(p) {
 
 // 1. 로그인 + SMS 2차 인증번호 요청
 app.post('/auth/request-sms', async (req, res) => {
+  if (isAuthBusy) {
+    return res.status(429).json({ ok: false, message: '이전 인증 요청이 처리 중입니다. 5초 후 다시 확인하세요.' });
+  }
+  isAuthBusy = true;
   try {
     const { userId, password } = req.body ?? {};
     if (!userId || !password) {
@@ -145,13 +171,13 @@ app.post('/auth/request-sms', async (req, res) => {
     lastDialogMessage = '';
     sessionConnected = false;
     const p = await resetSessionPage();
-    await p.goto(config.loginUrl, { waitUntil: 'load', timeout: 20000 });
-    await p.waitForSelector("input[type='password']", { timeout: 6000 }).catch(() => {});
+    await p.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 25000 });
+    await p.waitForSelector("input[type='password']", { timeout: 7000 }).catch(() => {});
 
     const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input[type='text']:not([readonly])`;
     const pwSelector = `${config.selectors.passwordInput}, input[type='password']`;
     const loginBtnSelector = `${config.selectors.loginButton}, button:has-text('Log in'), input[value*='Log' i], a:has-text('Log in'), button:has-text('로그인'), a:has-text('로그인'), [onclick*='login' i], [onclick*='Login' i]`;
-    const smsBtnSelector = `${config.selectors.smsSendButton}, button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS']`;
+    const smsBtnSelector = `${config.selectors.smsSendButton}, button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS'], [onclick*='sms' i], [onclick*='otp' i], [onclick*='auth' i], [onclick*='cert' i], [href*='sms' i], [href*='otp' i], img[src*='sms' i], img[src*='otp' i], img[src*='auth' i]`;
 
     const idLoc = await fillFirstVisible(p, idSelector, userId);
     const pwLoc = await fillFirstVisible(p, pwSelector, password);
@@ -167,7 +193,7 @@ app.post('/auth/request-sms', async (req, res) => {
     if (!clickedLogin) {
       await pwLoc.press('Enter').catch(() => {});
     }
-    await p.waitForLoadState('load', { timeout: 5000 }).catch(() => {});
+    await p.waitForLoadState('load', { timeout: 6000 }).catch(() => {});
     await p.waitForTimeout(1200);
 
     const pages = context.pages();
@@ -204,6 +230,8 @@ app.post('/auth/request-sms', async (req, res) => {
     });
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
+  } finally {
+    isAuthBusy = false;
   }
 });
 
@@ -226,7 +254,7 @@ app.post('/auth/verify-sms', async (req, res) => {
       });
     }
 
-    await clickFirstVisible(page, config.selectors.smsConfirmButton);
+    await clickFirstVisible(page, `${config.selectors.smsConfirmButton}, [onclick*='confirm' i], [onclick*='check' i], [onclick*='login' i]`);
     await page.waitForTimeout(2000);
 
     sessionConnected = true;
