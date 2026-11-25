@@ -92,12 +92,13 @@ async function inspectScreen(p) {
   const targets = [p, ...p.frames()];
   const buttons = [];
   const inputs = [];
+  const texts = [];
   for (const target of targets) {
     try {
       const info = await target.evaluate(() => {
-        const btns = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"]'))
+        const btns = Array.from(document.querySelectorAll('button, a, input[type="button"], input[type="submit"], img[onclick], span[onclick]'))
           .filter((el) => el.offsetParent !== null)
-          .map((el) => (el.innerText || el.value || el.getAttribute('aria-label') || '').trim())
+          .map((el) => (el.innerText || el.value || el.alt || el.getAttribute('aria-label') || el.getAttribute('onclick') || '').trim())
           .filter(Boolean);
         const ins = Array.from(document.querySelectorAll('input'))
           .filter((el) => el.offsetParent !== null)
@@ -107,14 +108,18 @@ async function inspectScreen(p) {
             id: el.id,
             placeholder: el.placeholder,
           }));
-        return { btns, ins };
+        const txt = (document.body?.innerText || '').replace(/\s+/g, ' ').trim().slice(0, 400);
+        return { btns, ins, txt };
       });
       buttons.push(...info.btns);
       inputs.push(...info.ins);
+      if (info.txt) texts.push(info.txt);
     } catch {}
   }
   return {
     url: p.url(),
+    frameCount: p.frames().length,
+    text: texts.join(' | ').slice(0, 600),
     buttons: [...new Set(buttons)].slice(0, 20),
     inputs: inputs.slice(0, 15),
   };
@@ -130,10 +135,8 @@ app.post('/auth/request-sms', async (req, res) => {
 
     lastDialogMessage = '';
     const p = await ensurePage();
-    await p.goto(config.loginUrl, { waitUntil: 'networkidle', timeout: 30000 }).catch(async () => {
-      await p.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    });
-    await p.waitForTimeout(2000);
+    await p.goto(config.loginUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await p.waitForSelector("input[type='password']", { timeout: 5000 }).catch(() => {});
 
     const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input:not([type='hidden']):not([type='password']):not([type='submit']):not([type='button'])`;
     const pwSelector = `${config.selectors.passwordInput}, input[type='password']`;
@@ -154,13 +157,13 @@ app.post('/auth/request-sms', async (req, res) => {
     if (!clickedLogin) {
       await pwLoc.press('Enter').catch(() => {});
     }
-    await p.waitForTimeout(3000);
+    await p.waitForLoadState('networkidle', { timeout: 4000 }).catch(() => {});
+    await p.waitForTimeout(1000);
 
     const pages = context.pages();
     if (pages.length > 1) {
       page = pages[pages.length - 1];
       await page.waitForLoadState('domcontentloaded').catch(() => {});
-      await page.waitForTimeout(1500);
     } else {
       page = p;
     }
@@ -175,19 +178,19 @@ app.post('/auth/request-sms', async (req, res) => {
     }
 
     const clickedSms = await clickFirstVisible(page, smsBtnSelector);
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(800);
     const screenAfterSms = await inspectScreen(page);
 
     if (!clickedSms) {
       return res.json({
         ok: true,
-        message: `로그인은 통과했으나 SMS 발송 버튼을 자동으로 찾지 못했습니다. 문자가 안 오면 이 메시지를 공유해 주세요. [URL: ${screenAfterSms.url} | 알림: ${lastDialogMessage || '없음'} | 버튼: ${screenAfterSms.buttons.join(', ') || '없음'}]`,
+        message: `화면 이동됨: ${screenAfterSms.text || screenAfterSms.url} | 버튼: ${screenAfterSms.buttons.join(', ') || '없음'}`,
       });
     }
 
     return res.json({
       ok: true,
-      message: `SKT 판매점 포탈에 로그인 및 SMS 인증번호를 요청했습니다. (페이지: ${screenAfterSms.url}${lastDialogMessage ? ` / 알림: ${lastDialogMessage}` : ''})`,
+      message: `SKT 판매점 포탈에 로그인 및 SMS 인증번호를 요청했습니다. (${screenAfterSms.url}${lastDialogMessage ? ` / 알림: ${lastDialogMessage}` : ''})`,
     });
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
@@ -214,7 +217,7 @@ app.post('/auth/verify-sms', async (req, res) => {
     }
 
     await clickFirstVisible(page, config.selectors.smsConfirmButton);
-    await page.waitForTimeout(2500);
+    await page.waitForTimeout(2000);
 
     sessionConnected = true;
     saveLatestCache({ connectedUser: req.body?.userId || '연동계정' });
@@ -233,6 +236,12 @@ app.get('/debug', async (_req, res) => {
   if (!page) return res.json({ ok: true, active: false });
   const screen = await inspectScreen(page);
   res.json({ ok: true, active: true, lastDialogMessage, ...screen });
+});
+
+app.get('/debug-shot', async (_req, res) => {
+  if (!page) return res.status(404).send('활성 페이지가 없습니다.');
+  const buf = await page.screenshot({ type: 'png', fullPage: true });
+  res.type('image/png').send(buf);
 });
 
 // 3. 무선/유선 엑셀 자동 다운로드 및 JSON 반환
@@ -397,7 +406,7 @@ setInterval(async () => {
       { id: `log-${Date.now()}`, timestamp: new Date().toLocaleTimeString('ko-KR'), type: 'auto', status: 'success', message: res.message },
       ...(latestCache.syncLogs || []),
     ].slice(0, 30);
-    saveLatestCache({ syncedAt: res.syncedAt, wirelessRaw: res.wirelessRaw || [], wiredRaw: res.wiredRaw || [], syncLogs: logs });
+    saveLatestCache({ syncedAt: res.syncedAt, wirelessRaw: result.wirelessRaw || [], wiredRaw: result.wiredRaw || [], syncLogs: logs });
   } catch (err) {
     console.warn('[tkey-worker] 백그라운드 수집 실패:', err.message);
   }
