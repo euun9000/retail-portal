@@ -193,8 +193,9 @@ app.post('/auth/request-sms', async (req, res) => {
     if (!clickedLogin) {
       await pwLoc.press('Enter').catch(() => {});
     }
-    await p.waitForLoadState('load', { timeout: 6000 }).catch(() => {});
-    await p.waitForTimeout(1200);
+
+    await p.waitForURL((u) => !u.href.includes('UserLogin.html'), { timeout: 6000 }).catch(() => {});
+    await p.waitForSelector("#otpNo, input[value*='요청']", { timeout: 2500 }).catch(() => {});
 
     const pages = context.pages();
     if (pages.length > 1) {
