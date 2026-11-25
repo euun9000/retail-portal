@@ -1,0 +1,15 @@
+{
+  "loginUrl": "https://www.jungboboho.com/ciespp/index.jsp",
+  "selectors": {
+    "userIdInput": "input[name='userId'], input[id*='id' i], input[type='text']",
+    "passwordInput": "input[name='password'], input[type='password']",
+    "loginButton": "button[type='submit'], input[type='submit'], a.btn_login, button:has-text('로그인')",
+    "smsSendButton": "button:has-text('인증번호'), button:has-text('요청'), a:has-text('인증')",
+    "smsCodeInput": "input[name*='auth' i], input[name*='sms' i], input[placeholder*='인증' i], input[maxlength='6']",
+    "smsConfirmButton": "button:has-text('확인'), button:has-text('인증확인'), input[value*='확인']",
+    "tkeyMenuLink": "a:has-text('T Key'), a:has-text('T.Key'), a:has-text('판매관리')",
+    "wirelessExcelBtn": "button:has-text('엑셀'), a:has-text('엑셀'), button:has-text('다운로드')",
+    "wiredMenuLink": "a:has-text('유선'), a:has-text('유선판매')",
+    "wiredExcelBtn": "button:has-text('엑셀'), a:has-text('엑셀'), button:has-text('다운로드')"
+  }
+}
