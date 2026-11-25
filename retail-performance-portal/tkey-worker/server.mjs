@@ -177,7 +177,7 @@ app.post('/auth/request-sms', async (req, res) => {
     const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input[type='text']:not([readonly])`;
     const pwSelector = `${config.selectors.passwordInput}, input[type='password']`;
     const loginBtnSelector = `${config.selectors.loginButton}, button:has-text('Log in'), input[value*='Log' i], a:has-text('Log in'), button:has-text('로그인'), a:has-text('로그인'), [onclick*='login' i], [onclick*='Login' i]`;
-    const smsBtnSelector = `${config.selectors.smsSendButton}, input[value*='요청'], a:has-text('요청'), button:has-text('요청'), button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS'], [onclick*='sms' i], [onclick*='otp' i], [onclick*='auth' i], [onclick*='cert' i], [onclick*='req' i], [href*='sms' i], [href*='otp' i], img[src*='sms' i], img[src*='otp' i], img[src*='auth' i]`;
+    const smsBtnSelector = `${config.selectors.smsSendButton}, input[value*='요청'], input[value*='발 송'], input[value*='발송'], a:has-text('요청'), a:has-text('발 송'), button:has-text('요청'), button:has-text('발 송'), button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS'], [onclick*='sms' i], [onclick*='otp' i], [onclick*='auth' i], [onclick*='cert' i], [onclick*='req' i], [href*='sms' i], [href*='otp' i]`;
 
     const idLoc = await fillFirstVisible(p, idSelector, userId);
     const pwLoc = await fillFirstVisible(p, pwSelector, password);
@@ -194,8 +194,8 @@ app.post('/auth/request-sms', async (req, res) => {
       await pwLoc.press('Enter').catch(() => {});
     }
 
-    await p.waitForURL((u) => !u.href.includes('UserLogin.html'), { timeout: 6000 }).catch(() => {});
-    await p.waitForSelector("#otpNo, input[value*='요청']", { timeout: 2500 }).catch(() => {});
+    await p.waitForURL((u) => !u.href.includes('UserLogin.html'), { timeout: 5000 }).catch(() => {});
+    await p.waitForSelector("#otpNo, input[value*='요청'], input[value*='발 송'], a:has-text('발 송')", { timeout: 2500 }).catch(() => {});
 
     const pages = context.pages();
     if (pages.length > 1) {
@@ -205,29 +205,28 @@ app.post('/auth/request-sms', async (req, res) => {
       page = p;
     }
 
-    const screenAfterLogin = await inspectScreen(page);
-    if (screenAfterLogin.url.includes('UserLogin.html')) {
-      const alertNote = lastDialogMessage ? ` / 포탈 알림: ${lastDialogMessage}` : '';
-      return res.status(400).json({
-        ok: false,
-        message: `로그인 다음 단계로 넘어가지 않았습니다.${alertNote} (버튼: ${screenAfterLogin.buttons.join(', ') || '없음'})`,
-      });
-    }
-
     const clickedSms = await clickFirstVisible(page, smsBtnSelector);
     await page.waitForTimeout(800);
     const screenAfterSms = await inspectScreen(page);
 
-    if (!clickedSms) {
+    if (clickedSms) {
       return res.json({
         ok: true,
-        message: `화면 이동됨: ${screenAfterSms.text || screenAfterSms.url} | 버튼: ${screenAfterSms.buttons.join(', ') || '없음'}`,
+        message: `SKT 판매점 포탈에 로그인 및 SMS 인증번호를 요청했습니다. 휴대폰으로 온 6자리 번호를 입력하세요.${lastDialogMessage ? ` (알림: ${lastDialogMessage})` : ''}`,
+      });
+    }
+
+    if (screenAfterSms.url.includes('UserLogin.html')) {
+      const alertNote = lastDialogMessage ? ` / 포탈 알림: ${lastDialogMessage}` : '';
+      return res.status(400).json({
+        ok: false,
+        message: `로그인 다음 단계로 넘어가지 않았습니다.${alertNote} (버튼: ${screenAfterSms.buttons.join(', ') || '없음'})`,
       });
     }
 
     return res.json({
       ok: true,
-      message: `SKT 판매점 포탈에 로그인 및 SMS 인증번호를 요청했습니다. (${screenAfterSms.url}${lastDialogMessage ? ` / 알림: ${lastDialogMessage}` : ''})`,
+      message: `화면 이동됨: ${screenAfterSms.text || screenAfterSms.url} | 버튼: ${screenAfterSms.buttons.join(', ') || '없음'}`,
     });
   } catch (err) {
     return res.status(500).json({ ok: false, message: err.message });
