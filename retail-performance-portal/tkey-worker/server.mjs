@@ -177,7 +177,7 @@ app.post('/auth/request-sms', async (req, res) => {
     const idSelector = `${config.selectors.userIdInput}, input[name*='USER' i], input[id*='USER' i], input[placeholder*='ID' i], input[placeholder*='아이디'], input[type='text']:not([readonly])`;
     const pwSelector = `${config.selectors.passwordInput}, input[type='password']`;
     const loginBtnSelector = `${config.selectors.loginButton}, button:has-text('Log in'), input[value*='Log' i], a:has-text('Log in'), button:has-text('로그인'), a:has-text('로그인'), [onclick*='login' i], [onclick*='Login' i]`;
-    const smsBtnSelector = `${config.selectors.smsSendButton}, button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS'], [onclick*='sms' i], [onclick*='otp' i], [onclick*='auth' i], [onclick*='cert' i], [href*='sms' i], [href*='otp' i], img[src*='sms' i], img[src*='otp' i], img[src*='auth' i]`;
+    const smsBtnSelector = `${config.selectors.smsSendButton}, input[value*='요청'], a:has-text('요청'), button:has-text('요청'), button:has-text('인증번호'), button:has-text('문자'), button:has-text('SMS'), button:has-text('발송'), button:has-text('전송'), a:has-text('인증번호'), a:has-text('문자'), a:has-text('SMS'), input[value*='인증'], input[value*='문자'], input[value*='SMS'], [onclick*='sms' i], [onclick*='otp' i], [onclick*='auth' i], [onclick*='cert' i], [onclick*='req' i], [href*='sms' i], [href*='otp' i], img[src*='sms' i], img[src*='otp' i], img[src*='auth' i]`;
 
     const idLoc = await fillFirstVisible(p, idSelector, userId);
     const pwLoc = await fillFirstVisible(p, pwSelector, password);
@@ -254,7 +254,7 @@ app.post('/auth/verify-sms', async (req, res) => {
       });
     }
 
-    await clickFirstVisible(page, `${config.selectors.smsConfirmButton}, [onclick*='confirm' i], [onclick*='check' i], [onclick*='login' i]`);
+    await clickFirstVisible(page, `${config.selectors.smsConfirmButton}, input[value*='확인'], a:has-text('확인'), [onclick*='confirm' i], [onclick*='check' i], [onclick*='login' i]`);
     await page.waitForTimeout(2000);
 
     sessionConnected = true;
